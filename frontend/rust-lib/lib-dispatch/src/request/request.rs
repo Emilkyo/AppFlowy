@@ -1,18 +1,20 @@
+use std::cell::{Ref, RefCell};
 use std::future::Future;
+use std::rc::Rc;
+use std::{
+  fmt::Debug,
+  pin::Pin,
+  task::{Context, Poll},
+};
+
+use derivative::*;
+use futures_core::ready;
 
 use crate::{
   errors::{DispatchError, InternalError},
   module::{AFPluginEvent, AFPluginStateMap},
   request::payload::Payload,
   util::ready::{ready, Ready},
-};
-use derivative::*;
-use futures_core::ready;
-use std::{
-  fmt::Debug,
-  pin::Pin,
-  sync::Arc,
-  task::{Context, Poll},
 };
 
 #[derive(Clone, Debug, Derivative)]
@@ -21,26 +23,28 @@ pub struct AFPluginEventRequest {
   pub(crate) id: String,
   pub(crate) event: AFPluginEvent,
   #[derivative(Debug = "ignore")]
-  pub(crate) states: Arc<AFPluginStateMap>,
+  pub(crate) states: Rc<RefCell<AFPluginStateMap>>,
 }
 
 impl AFPluginEventRequest {
-  pub fn new<E>(id: String, event: E, module_data: Arc<AFPluginStateMap>) -> AFPluginEventRequest
+  pub fn new<E>(id: String, event: E, states: Rc<RefCell<AFPluginStateMap>>) -> AFPluginEventRequest
   where
     E: Into<AFPluginEvent>,
   {
     Self {
       id,
       event: event.into(),
-      states: module_data,
+      states,
     }
   }
 
-  pub fn get_state<T: 'static>(&self) -> Option<&T>
-  where
-    T: Send + Sync,
-  {
-    if let Some(data) = self.states.get::<T>() {
+  #[inline]
+  fn states(&self) -> Ref<'_, AFPluginStateMap> {
+    self.states.borrow()
+  }
+
+  pub fn get_state<T: 'static + Clone>(&self) -> Option<T> {
+    if let Some(data) = self.states().get::<T>().cloned() {
       return Some(data);
     }
 

@@ -1,9 +1,9 @@
-use bytes::Bytes;
 use std::{fmt, fmt::Formatter};
+
+use bytes::Bytes;
 
 pub enum PayloadError {}
 
-// TODO: support stream data
 #[derive(Clone)]
 #[cfg_attr(feature = "use_serde", derive(serde::Serialize))]
 pub enum Payload {

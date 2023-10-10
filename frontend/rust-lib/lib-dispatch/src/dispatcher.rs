@@ -1,3 +1,11 @@
+use std::{future::Future, sync::Arc};
+
+use derivative::*;
+use futures_core::future::LocalBoxFuture;
+use futures_util::task::Context;
+use pin_project::pin_project;
+use tokio::macros::support::{Pin, Poll};
+
 use crate::runtime::AFPluginRuntime;
 use crate::{
   errors::{DispatchError, Error, InternalError},
@@ -5,20 +13,14 @@ use crate::{
   response::AFPluginEventResponse,
   service::{AFPluginServiceFactory, Service},
 };
-use derivative::*;
-use futures_core::future::BoxFuture;
-use futures_util::task::Context;
-use pin_project::pin_project;
-use std::{future::Future, sync::Arc};
-use tokio::macros::support::{Pin, Poll};
 
 pub struct AFPluginDispatcher {
   plugins: AFPluginMap,
-  runtime: AFPluginRuntime,
+  runtime: Arc<AFPluginRuntime>,
 }
 
 impl AFPluginDispatcher {
-  pub fn construct<F>(runtime: AFPluginRuntime, module_factory: F) -> AFPluginDispatcher
+  pub fn construct<F>(runtime: Arc<AFPluginRuntime>, module_factory: F) -> AFPluginDispatcher
   where
     F: FnOnce() -> Vec<AFPlugin>,
   {
@@ -47,7 +49,7 @@ impl AFPluginDispatcher {
   ) -> DispatchFuture<AFPluginEventResponse>
   where
     Req: std::convert::Into<AFPluginRequest>,
-    Callback: FnOnce(AFPluginEventResponse) -> BoxFuture<'static, ()> + 'static + Send + Sync,
+    Callback: FnOnce(AFPluginEventResponse) -> LocalBoxFuture<'static, ()> + 'static,
   {
     let request: AFPluginRequest = request.into();
     let plugins = dispatch.plugins.clone();
@@ -87,22 +89,19 @@ impl AFPluginDispatcher {
 
   pub fn spawn<F>(&self, f: F)
   where
-    F: Future<Output = ()> + Send + 'static,
+    F: Future<Output = ()> + 'static,
   {
     self.runtime.spawn(f);
   }
 }
 
 #[pin_project]
-pub struct DispatchFuture<T: Send + Sync> {
+pub struct DispatchFuture<T> {
   #[pin]
-  pub fut: Pin<Box<dyn Future<Output = T> + Sync + Send>>,
+  pub fut: Pin<Box<dyn Future<Output = T>>>,
 }
 
-impl<T> Future for DispatchFuture<T>
-where
-  T: Send + Sync,
-{
+impl<T> Future for DispatchFuture<T> {
   type Output = T;
 
   fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -112,7 +111,7 @@ where
 }
 
 pub type BoxFutureCallback =
-  Box<dyn FnOnce(AFPluginEventResponse) -> BoxFuture<'static, ()> + 'static + Send + Sync>;
+  Box<dyn FnOnce(AFPluginEventResponse) -> LocalBoxFuture<'static, ()> + 'static>;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -136,7 +135,7 @@ pub(crate) struct DispatchService {
 impl Service<DispatchContext> for DispatchService {
   type Response = AFPluginEventResponse;
   type Error = DispatchError;
-  type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+  type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
   #[cfg_attr(
     feature = "use_tracing",

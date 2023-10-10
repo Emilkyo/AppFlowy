@@ -48,9 +48,10 @@ impl EventIntegrationTest {
       ],
     );
 
-    let inner = std::thread::spawn(|| AppFlowyCore::new(config))
-      .join()
-      .unwrap();
+    // let inner = std::thread::spawn(|| AppFlowyCore::new(config))
+    //   .join()
+    //   .unwrap();
+    let inner = AppFlowyCore::new(config);
     let notification_sender = TestNotificationSender::new();
     let auth_type = Arc::new(RwLock::new(AuthTypePB::Local));
     register_notification_sender(notification_sender.clone());

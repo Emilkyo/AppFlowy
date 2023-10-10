@@ -1,31 +1,28 @@
+use futures_core::future::LocalBoxFuture;
+
 use crate::service::{AFPluginServiceFactory, Service};
-use futures_core::future::BoxFuture;
 
 pub fn factory<SF, Req>(factory: SF) -> BoxServiceFactory<SF::Context, Req, SF::Response, SF::Error>
 where
-  SF: AFPluginServiceFactory<Req> + 'static + Sync + Send,
+  SF: AFPluginServiceFactory<Req> + 'static,
   Req: 'static,
   SF::Response: 'static,
   SF::Service: 'static,
   SF::Future: 'static,
-  SF::Error: 'static + Send + Sync,
-  <SF as AFPluginServiceFactory<Req>>::Service: Sync + Send,
-  <<SF as AFPluginServiceFactory<Req>>::Service as Service<Req>>::Future: Send + Sync,
-  <SF as AFPluginServiceFactory<Req>>::Future: Send + Sync,
+  SF::Error: 'static,
 {
   BoxServiceFactory(Box::new(FactoryWrapper(factory)))
 }
 
 type Inner<Cfg, Req, Res, Err> = Box<
   dyn AFPluginServiceFactory<
-      Req,
-      Context = Cfg,
-      Response = Res,
-      Error = Err,
-      Service = BoxService<Req, Res, Err>,
-      Future = BoxFuture<'static, Result<BoxService<Req, Res, Err>, Err>>,
-    > + Sync
-    + Send,
+    Req,
+    Context = Cfg,
+    Response = Res,
+    Error = Err,
+    Service = BoxService<Req, Res, Err>,
+    Future = LocalBoxFuture<'static, Result<BoxService<Req, Res, Err>, Err>>,
+  >,
 >;
 
 pub struct BoxServiceFactory<Cfg, Req, Res, Err>(Inner<Cfg, Req, Res, Err>);
@@ -39,7 +36,7 @@ where
   type Error = Err;
   type Service = BoxService<Req, Res, Err>;
   type Context = Cfg;
-  type Future = BoxFuture<'static, Result<Self::Service, Self::Error>>;
+  type Future = LocalBoxFuture<'static, Result<Self::Service, Self::Error>>;
 
   fn new_service(&self, cfg: Cfg) -> Self::Future {
     self.0.new_service(cfg)
@@ -47,9 +44,7 @@ where
 }
 
 pub type BoxService<Req, Res, Err> = Box<
-  dyn Service<Req, Response = Res, Error = Err, Future = BoxFuture<'static, Result<Res, Err>>>
-    + Sync
-    + Send,
+  dyn Service<Req, Response = Res, Error = Err, Future = LocalBoxFuture<'static, Result<Res, Err>>>,
 >;
 
 // #[allow(dead_code)]
@@ -88,11 +83,11 @@ impl<S> ServiceWrapper<S> {
 impl<S, Req, Res, Err> Service<Req> for ServiceWrapper<S>
 where
   S: Service<Req, Response = Res, Error = Err>,
-  S::Future: 'static + Send + Sync,
+  S::Future: 'static,
 {
   type Response = Res;
   type Error = Err;
-  type Future = BoxFuture<'static, Result<Res, Err>>;
+  type Future = LocalBoxFuture<'static, Result<Res, Err>>;
 
   fn call(&self, req: Req) -> Self::Future {
     Box::pin(self.inner.call(req))
@@ -108,15 +103,14 @@ where
   Err: 'static,
   SF: AFPluginServiceFactory<Req, Context = Cfg, Response = Res, Error = Err>,
   SF::Future: 'static,
-  SF::Service: 'static + Send + Sync,
-  <<SF as AFPluginServiceFactory<Req>>::Service as Service<Req>>::Future: Send + Sync + 'static,
-  <SF as AFPluginServiceFactory<Req>>::Future: Send + Sync,
+  SF::Service: 'static,
+  <<SF as AFPluginServiceFactory<Req>>::Service as Service<Req>>::Future: 'static,
 {
   type Response = Res;
   type Error = Err;
   type Service = BoxService<Req, Res, Err>;
   type Context = Cfg;
-  type Future = BoxFuture<'static, Result<Self::Service, Self::Error>>;
+  type Future = LocalBoxFuture<'static, Result<Self::Service, Self::Error>>;
 
   fn new_service(&self, cfg: Cfg) -> Self::Future {
     let f = self.0.new_service(cfg);
